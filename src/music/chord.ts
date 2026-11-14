@@ -54,6 +54,9 @@ function normalize(q: string): string {
     .replace(/[♭]/g, 'b')
     .replace(/∆/g, 'Δ')
     .replace(/[♯]/g, '#')
+    // Entre paréntesis, 9/11/13 son notas agregadas: C(9) = Cadd9, Cm(9) = Cm add9, C7(9) = C9; (4) = sus4
+    .replace(/\((?:add)?(9|11|13|2|6)\)/g, 'add$1')
+    .replace(/\(4\)/g, 'sus4')
     .replace(/[()\s,]/g, '')
     .replace(/^Δ7?/, 'maj7')
     .replace(/Δ/g, 'maj')
@@ -111,6 +114,7 @@ function computeStructure(suffix: string): ChordStructure | null {
     fifth = 8;
     fifthAltered = true;
     s = s.slice(s.startsWith('aug') ? 3 : 1);
+    if (/^5(?!\d)/.test(s)) s = s.slice(1); // "C+5"
   }
 
   // Séptima / extensiones principales
