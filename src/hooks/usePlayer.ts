@@ -1,10 +1,18 @@
-// Avance automático según el tempo (BPM), con metrónomo opcional y cuenta de entrada.
-import { useCallback, useEffect, useRef, useState } from 'react';
+// Avance automático. Dos modos:
+//  - 'chords': sigue los acordes según el tempo (BPM) y resalta la línea/acorde actual.
+//  - 'smooth': scrollea hacia abajo de forma continua a una velocidad elegida.
+// En ambos, cambiar BPM, velocidad o tiempos por acorde mientras suena se aplica al instante.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { TimelineEvent } from '../song/timeline';
 
+export type ScrollMode = 'chords' | 'smooth';
+
 interface Options {
+  mode: ScrollMode;
   events: TimelineEvent[];
   bpm: number;
+  /** Velocidad del scroll continuo, en píxeles por segundo. */
+  speed: number;
   metronome: boolean;
   countIn: number;
 }
@@ -39,95 +47,137 @@ function click(accent: boolean) {
   }
 }
 
-export function usePlayer({ events, bpm, metronome, countIn }: Options): PlayerState {
+export function usePlayer(options: Options): PlayerState {
+  const { events, bpm } = options;
   const [playing, setPlaying] = useState(false);
   const [eventIndex, setEventIndex] = useState(0);
   const [counting, setCounting] = useState(0);
 
-  // Posición en beats; se guarda en refs para que el loop no dependa de renders.
-  const posRef = useRef(0); // beat de la canción donde se arrancó
+  // La posición se lleva en beats: beat = posRef + (ahora - t0) * bpm. Al cambiar el BPM
+  // se "re-ancla" (posRef = beat actual, t0 = ahora) para que siga desde donde está.
+  const posRef = useRef(0);
   const t0Ref = useRef(0);
   const lastBeatRef = useRef(-Infinity);
+  const lastFrameRef = useRef(0);
+  const scrollCarry = useRef(0);
   const rafRef = useRef(0);
-  const opts = useRef({ events, bpm, metronome, countIn });
-  opts.current = { events, bpm, metronome, countIn };
+  const playingRef = useRef(false);
+  const eventIndexRef = useRef(0);
+  eventIndexRef.current = eventIndex;
+  const opts = useRef(options);
   const wakeRef = useRef<{ release: () => Promise<void> } | null>(null);
+
+  const beatNow = (b = opts.current.bpm) => posRef.current + ((performance.now() - t0Ref.current) / 60000) * b;
+  const reanchor = (beat: number) => {
+    posRef.current = beat;
+    t0Ref.current = performance.now();
+  };
+
+  // Cambio de BPM en vivo: re-anclar con el tempo viejo antes de usar el nuevo.
+  if (playingRef.current && bpm !== opts.current.bpm) reanchor(beatNow(opts.current.bpm));
+
+  // Cambio de tiempos por acorde en vivo: mantener el mismo acorde y la misma fracción dentro de él.
+  const prevEvents = opts.current.events;
+  if (playingRef.current && events !== prevEvents && opts.current.mode === 'chords') {
+    const beat = beatNow(opts.current.bpm);
+    const oi = findEvent(prevEvents, beat);
+    if (oi >= 0) {
+      const old = prevEvents[oi];
+      const frac = Math.min(1, Math.max(0, (beat - old.start) / old.beats));
+      const ni = events.findIndex((e) => e.line === old.line && e.seg === old.seg);
+      if (ni >= 0) reanchor(events[ni].start + frac * events[ni].beats);
+    }
+  }
+  opts.current = options;
 
   const stopLoop = () => cancelAnimationFrame(rafRef.current);
 
-  const currentBeat = () => {
-    const { bpm: b } = opts.current;
-    return posRef.current + ((performance.now() - t0Ref.current) / 60000) * b;
-  };
-
   const loop = useCallback(() => {
-    const { events: ev, metronome: met } = opts.current;
-    const beat = currentBeat();
+    const { events: ev, metronome: met, mode, speed } = opts.current;
+    const now = performance.now();
+    const dt = Math.min(100, now - lastFrameRef.current);
+    lastFrameRef.current = now;
+    const beat = beatNow();
     const whole = Math.floor(beat);
     if (whole !== lastBeatRef.current) {
       lastBeatRef.current = whole;
-      const idxForClick = findEvent(ev, whole);
-      if (met) click(beat < 0 || (idxForClick >= 0 && Math.abs(ev[idxForClick].start - whole) < 1e-6));
+      if (met) {
+        const idx = mode === 'chords' ? findEvent(ev, whole) : -1;
+        click(beat < 0 || (idx >= 0 && Math.abs(ev[idx].start - whole) < 1e-6) || (mode === 'smooth' && whole % 4 === 0));
+      }
     }
     if (beat < 0) {
       setCounting(Math.ceil(-beat));
     } else {
       setCounting(0);
-      const last = ev[ev.length - 1];
-      if (!last || beat >= last.start + last.beats) {
-        setPlaying(false);
-        return;
+      if (mode === 'smooth') {
+        scrollCarry.current += (speed * dt) / 1000;
+        const px = Math.trunc(scrollCarry.current);
+        if (px) {
+          scrollCarry.current -= px;
+          window.scrollBy(0, px);
+        }
+        const atBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+        if (atBottom) return stop();
+      } else {
+        const last = ev[ev.length - 1];
+        if (!last || beat >= last.start + last.beats) return stop();
+        setEventIndex(findEvent(ev, beat));
       }
-      setEventIndex(findEvent(ev, beat));
     }
     rafRef.current = requestAnimationFrame(loop);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stop = () => {
+    stopLoop();
+    playingRef.current = false;
+    setPlaying(false);
+    setCounting(0);
+  };
 
   const startFrom = useCallback((beat: number, withCountIn: boolean) => {
     stopLoop();
-    posRef.current = beat - (withCountIn ? opts.current.countIn : 0);
-    t0Ref.current = performance.now();
+    reanchor(beat - (withCountIn ? opts.current.countIn : 0));
     lastBeatRef.current = -Infinity;
+    lastFrameRef.current = performance.now();
+    scrollCarry.current = 0;
+    playingRef.current = true;
+    setPlaying(true);
     rafRef.current = requestAnimationFrame(loop);
   }, [loop]);
 
   const play = useCallback(() => {
-    const ev = opts.current.events;
+    const { events: ev, mode } = opts.current;
+    if (mode === 'smooth') {
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) window.scrollTo(0, 0);
+      return startFrom(0, true);
+    }
     if (!ev.length) return;
     const idx = eventIndexRef.current >= ev.length ? 0 : eventIndexRef.current;
-    setPlaying(true);
     startFrom(ev[idx]?.start ?? 0, true);
   }, [startFrom]);
 
-  const pause = useCallback(() => {
-    stopLoop();
-    setPlaying(false);
-    setCounting(0);
-  }, []);
-
-  const eventIndexRef = useRef(eventIndex);
-  eventIndexRef.current = eventIndex;
-  const playingRef = useRef(playing);
-  playingRef.current = playing;
+  const pause = useCallback(() => stop(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = useCallback(() => (playingRef.current ? pause() : play()), [play, pause]);
 
   const seekToLine = useCallback((line: number) => {
-    const ev = opts.current.events;
+    const { events: ev, mode } = opts.current;
+    if (mode === 'smooth') return;
     const idx = ev.findIndex((e) => e.line >= line);
     if (idx < 0) return;
     setEventIndex(idx);
     if (playingRef.current) startFrom(ev[idx].start, false);
   }, [startFrom]);
 
-  // Si cambia el tempo mientras suena, seguir desde el beat actual con el tempo nuevo.
-  const prevBpm = useRef(bpm);
+  // Al cambiar de modo, detener.
+  useLayoutEffect(() => {
+    stop();
+  }, [options.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Si cambia la canción (no solo los tiempos) y no está sonando, volver al principio.
   useEffect(() => {
-    if (playingRef.current && prevBpm.current !== bpm) {
-      const elapsed = ((performance.now() - t0Ref.current) / 60000) * prevBpm.current;
-      posRef.current += elapsed;
-      t0Ref.current = performance.now();
-    }
-    prevBpm.current = bpm;
-  }, [bpm]);
+    if (!playingRef.current && eventIndexRef.current >= events.length) setEventIndex(0);
+  }, [events]);
 
   // Mantener la pantalla encendida mientras suena.
   useEffect(() => {
@@ -142,14 +192,7 @@ export function usePlayer({ events, bpm, metronome, countIn }: Options): PlayerS
   }, [playing]);
 
   useEffect(() => () => stopLoop(), []);
-  useEffect(() => {
-    // Si cambia la canción/tiempos, reiniciar.
-    stopLoop();
-    setPlaying(false);
-    setEventIndex(0);
-  }, [events]);
 
-  const toggle = useCallback(() => (playingRef.current ? pause() : play()), [play, pause]);
   return { playing, eventIndex, counting, play, pause, toggle, seekToLine };
 }
 

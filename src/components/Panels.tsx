@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MAJOR_KEYS, MINOR_KEYS, Key, keyToString } from '../music/key';
 import { midiName } from '../music/notes';
 import { KEYBOARD_PRESETS } from '../music/piano';
@@ -209,9 +209,53 @@ export function KeyPanel({ rec, update, origKey, currentKey, keyWasGiven }: {
   );
 }
 
-export function TempoBar({ rec, update, playing, onToggle, metronome, setMetronome, countIn, setCountIn }: {
+/**
+ * Campo numérico que deja escribir libremente (por ejemplo borrar y tipear "120")
+ * y aplica el valor apenas es válido, sin esperar a perder el foco.
+ */
+function NumField({ value, min, max, step = 1, onChange, label }: {
+  value: number; min: number; max: number; step?: number; onChange: (v: number) => void; label: string;
+}) {
+  const [text, setText] = useState(String(value));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(String(value));
+  }, [value]);
+  return (
+    <input type="number" inputMode="decimal" aria-label={label} min={min} max={max} step={step} value={text}
+      onFocus={(e) => { focused.current = true; e.target.select(); }}
+      onChange={(e) => {
+        setText(e.target.value);
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v) && v >= min && v <= max) onChange(v);
+      }}
+      onBlur={() => {
+        focused.current = false;
+        const v = parseFloat(text);
+        const ok = Number.isNaN(v) ? value : Math.min(max, Math.max(min, v));
+        if (ok !== value) onChange(ok);
+        setText(String(ok));
+      }} />
+  );
+}
+
+function Stepper({ value, min, max, step, onChange, label }: {
+  value: number; min: number; max: number; step: number; onChange: (v: number) => void; label: string;
+}) {
+  const set = (v: number) => onChange(Math.min(max, Math.max(min, +v.toFixed(2))));
+  return (
+    <>
+      <button onClick={() => set(value - step)} aria-label={label + ': menos'}><Icon name="minus" size={16} /></button>
+      <NumField value={value} min={min} max={max} onChange={set} label={label} />
+      <button onClick={() => set(value + step)} aria-label={label + ': más'}><Icon name="plus" size={16} /></button>
+    </>
+  );
+}
+
+export function TempoBar({ rec, update, playing, onToggle, metronome, setMetronome, countIn, setCountIn, mode, setMode }: {
   rec: SongRecord; update: (p: Partial<SongRecord>) => void; playing: boolean; onToggle: () => void;
   metronome: boolean; setMetronome: (v: boolean) => void; countIn: number; setCountIn: (v: number) => void;
+  mode: 'chords' | 'smooth'; setMode: (m: 'chords' | 'smooth') => void;
 }) {
   const taps = useRef<number[]>([]);
   const tap = () => {
@@ -222,10 +266,11 @@ export function TempoBar({ rec, update, playing, onToggle, metronome, setMetrono
     if (t.length >= 2) {
       const intervals = t.slice(1).map((x, i) => x - t[i]).slice(-4);
       const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-      update({ bpm: Math.round(60000 / avg) });
+      update({ bpm: Math.max(20, Math.min(300, Math.round(60000 / avg))) });
     }
   };
-  const bpm = (v: number) => update({ bpm: Math.max(20, Math.min(300, v)) });
+  const speed = rec.scrollSpeed ?? 25;
+  const showBpm = mode === 'chords' || metronome;
 
   return (
     <div className="tempo-bar">
@@ -233,26 +278,39 @@ export function TempoBar({ rec, update, playing, onToggle, metronome, setMetrono
         <Icon name={playing ? 'pause' : 'play'} size={26} />
       </button>
       <div className="tempo-group">
-        <span className="tempo-label">BPM</span>
-        <button onClick={() => bpm(rec.bpm - 1)} aria-label="Más lento"><Icon name="minus" size={16} /></button>
-        <input type="number" value={rec.bpm} min={20} max={300} onChange={(e) => bpm(+e.target.value || rec.bpm)} />
-        <button onClick={() => bpm(rec.bpm + 1)} aria-label="Más rápido"><Icon name="plus" size={16} /></button>
-        <button className="tap" onClick={tap}>Marcar</button>
+        <Seg value={mode} onChange={setMode} options={[['chords', 'Seguir acordes'], ['smooth', 'Scroll continuo']]} />
       </div>
-      <div className="tempo-group">
-        <span className="tempo-label" title="Tiempos que dura cada acorde (o cada compás si usás barras |)">Tiempos/acorde</span>
-        <input type="number" min={1} max={16} value={rec.beatsPerChord} onChange={(e) => update({ beatsPerChord: Math.max(1, +e.target.value || 4) })} />
-      </div>
-      <div className="tempo-group">
-        <span className="tempo-label" title="Tiempos para una línea de letra sin acordes (0 = saltearla)">Línea sin acordes</span>
-        <input type="number" min={0} max={32} value={rec.beatsPerLine} onChange={(e) => update({ beatsPerLine: Math.max(0, +e.target.value || 0) })} />
-      </div>
+      {mode === 'smooth' && (
+        <div className="tempo-group">
+          <span className="tempo-label" title="Píxeles por segundo">Velocidad</span>
+          <Stepper value={speed} min={1} max={300} step={speed < 20 ? 1 : 5} onChange={(scrollSpeed) => update({ scrollSpeed })} label="Velocidad" />
+        </div>
+      )}
+      {showBpm && (
+        <div className="tempo-group">
+          <span className="tempo-label">BPM</span>
+          <Stepper value={rec.bpm} min={20} max={300} step={1} onChange={(bpm) => update({ bpm })} label="BPM" />
+          <button className="tap" onClick={tap}>Marcar</button>
+        </div>
+      )}
+      {mode === 'chords' && (
+        <>
+          <div className="tempo-group">
+            <span className="tempo-label" title="Tiempos que dura cada acorde (o cada compás si usás barras |)">Tiempos/acorde</span>
+            <NumField value={rec.beatsPerChord} min={0.5} max={32} step={0.5} onChange={(beatsPerChord) => update({ beatsPerChord })} label="Tiempos por acorde" />
+          </div>
+          <div className="tempo-group">
+            <span className="tempo-label" title="Tiempos para una línea de letra sin acordes (0 = saltearla)">Línea sin acordes</span>
+            <NumField value={rec.beatsPerLine} min={0} max={64} onChange={(beatsPerLine) => update({ beatsPerLine })} label="Tiempos por línea sin acordes" />
+          </div>
+        </>
+      )}
       <div className="tempo-group">
         <button className={'chip' + (metronome ? ' on' : '')} onClick={() => setMetronome(!metronome)}>
           <Icon name="metronome" size={16} /> Metrónomo
         </button>
         <span className="tempo-label">Cuenta</span>
-        <input type="number" min={0} max={8} value={countIn} onChange={(e) => setCountIn(Math.max(0, +e.target.value || 0))} />
+        <NumField value={countIn} min={0} max={8} onChange={setCountIn} label="Cuenta de entrada" />
       </div>
     </div>
   );

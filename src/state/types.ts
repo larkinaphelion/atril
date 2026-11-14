@@ -31,6 +31,8 @@ export interface Settings {
   pianoLow: number;
   showFingers: boolean;
   metronome: boolean;
+  /** Avance automático: seguir los acordes por tempo, o scroll continuo. */
+  scrollMode: 'chords' | 'smooth';
   countIn: number;
 }
 
@@ -55,6 +57,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pianoLow: 36,
   showFingers: true,
   metronome: false,
+  scrollMode: 'chords',
   countIn: 4,
 };
 
@@ -72,6 +75,8 @@ export interface SongRecord {
   bpm: number;
   beatsPerChord: number;
   beatsPerLine: number;
+  /** Velocidad del scroll continuo (px por segundo). */
+  scrollSpeed: number;
   /** Posición elegida por acorde: "guitar:G6" → índice. */
   voicings: Record<string, number>;
 }
@@ -90,6 +95,7 @@ export function newSong(partial: Partial<SongRecord> = {}): SongRecord {
     bpm: 90,
     beatsPerChord: 4,
     beatsPerLine: 4,
+    scrollSpeed: 25,
     voicings: {},
     ...partial,
   };

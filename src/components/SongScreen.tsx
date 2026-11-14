@@ -73,17 +73,21 @@ export function SongScreen({ rec, settings, setSettings, update, onBack, onEdit 
   // Avance automático
   const events = useMemo(() => buildTimeline(parsed.lines, rec.beatsPerChord, rec.beatsPerLine),
     [parsed, rec.beatsPerChord, rec.beatsPerLine]);
-  const player = usePlayer({ events, bpm: rec.bpm, metronome: settings.metronome, countIn: settings.countIn });
-  const showPosition = tempoOpen || player.playing;
+  const smooth = settings.scrollMode === 'smooth';
+  const player = usePlayer({
+    mode: settings.scrollMode, events, bpm: rec.bpm, speed: rec.scrollSpeed ?? 25,
+    metronome: settings.metronome, countIn: settings.countIn,
+  });
+  const showPosition = !smooth && (tempoOpen || player.playing);
   const ev = events[player.eventIndex];
   const activeLine = showPosition && ev ? ev.line : -1;
   const activeSeg = showPosition && ev ? ev.seg : -2;
 
   useEffect(() => {
-    if (!player.playing || activeLine < 0) return;
+    if (smooth || !player.playing || activeLine < 0) return;
     const el = document.querySelector(`[data-line="${activeLine}"]`);
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [activeLine, player.playing]);
+  }, [activeLine, player.playing, smooth]);
 
   // Teclas rápidas: espacio = play/pausa
   useEffect(() => {
@@ -171,6 +175,7 @@ export function SongScreen({ rec, settings, setSettings, update, onBack, onEdit 
         {tempoOpen && (
           <TempoBar rec={rec} update={update} playing={player.playing} onToggle={player.toggle}
             metronome={settings.metronome} setMetronome={(metronome) => setSettings({ metronome })}
+            mode={settings.scrollMode} setMode={(scrollMode) => setSettings({ scrollMode })}
             countIn={settings.countIn} setCountIn={(countIn) => setSettings({ countIn })} />
         )}
         {player.counting > 0 && <div className="count-in">{player.counting}</div>}
