@@ -118,7 +118,10 @@ export function SongScreen({ rec, settings, setSettings, update, onBack, onEdit 
   return (
     <ChordContext.Provider value={ctx}>
       <div className="screen song-screen"
-        style={{ '--lyric-size': settings.lyricSize + 'px', '--chord-size': settings.chordSize + 'px' } as React.CSSProperties}>
+        style={{
+          '--lyric-size': settings.lyricSize + 'px', '--chord-size': settings.chordSize + 'px',
+          '--lyric-lh': settings.lineHeight, '--line-gap': settings.lineGap + 'em', '--chord-gap': settings.chordGap + 'px',
+        } as React.CSSProperties}>
         <header className="toolbar">
           <button className="icon-btn" onClick={onBack} aria-label="Volver"><Icon name="back" /></button>
           <div className="toolbar-title">
@@ -148,7 +151,7 @@ export function SongScreen({ rec, settings, setSettings, update, onBack, onEdit 
         )}
 
         <main className="song-main" onClick={() => setPanel(null)}>
-          <SongView lines={lines} unique={unique} settings={settings} activeLine={activeLine} activeSeg={activeSeg}
+          <SongView lines={lines} unique={unique} settings={settings} setSettings={setSettings} activeLine={activeLine} activeSeg={activeSeg}
             onLineClick={(i) => tempoOpen && player.seekToLine(i)} />
           <div className="song-end" />
         </main>

@@ -118,6 +118,20 @@ export function SettingsPanel({ s, set }: { s: Settings; set: (p: Partial<Settin
       <Row label="Columnas de letra">
         <Seg value={s.lyricColumns} onChange={(lyricColumns) => set({ lyricColumns })} options={[[1, 'Una'], [2, 'Dos']]} />
       </Row>
+      {(s.lyricColumns === 2 || (diagrams && s.placement === 'side')) && (
+        <p className="hint">Para cambiar el ancho de las columnas, arrastrá la barra que las separa (doble clic la vuelve al medio).</p>
+      )}
+      <Row label="Interlineado de la letra">
+        <Slider value={s.lineHeight} min={0.9} max={3} step={0.05} onChange={(lineHeight) => set({ lineHeight })} format={(v) => v.toFixed(2)} />
+      </Row>
+      <Row label="Espacio entre líneas">
+        <Slider value={s.lineGap} min={0} max={3} step={0.05} onChange={(lineGap) => set({ lineGap })} format={(v) => v.toFixed(2)} />
+      </Row>
+      {s.instrument !== 'none' && (
+        <Row label="Espacio entre acorde y letra">
+          <Slider value={s.chordGap} min={-8} max={30} step={1} onChange={(chordGap) => set({ chordGap })} format={(v) => v + 'px'} />
+        </Row>
+      )}
       <Row label="Tamaño de la letra">
         <Slider value={s.lyricSize} min={10} max={48} step={1} onChange={(lyricSize) => set({ lyricSize })} format={(v) => v + 'px'} />
       </Row>

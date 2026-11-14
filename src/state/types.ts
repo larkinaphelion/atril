@@ -13,6 +13,16 @@ export interface Settings {
   sideOrder: SideOrder;
   scope: Scope;
   lyricColumns: 1 | 2;
+  /** Ancho de la columna izquierda (0..1) cuando hay 2 columnas de letra. */
+  colSplit: number;
+  /** Ancho de la letra frente a los diagramas "al costado" (0..1). */
+  sideSplit: number;
+  /** Interlineado de la letra (múltiplo del tamaño de letra). */
+  lineHeight: number;
+  /** Espacio extra entre líneas (em). */
+  lineGap: number;
+  /** Espacio entre el acorde y la letra (px). */
+  chordGap: number;
   lyricSize: number;
   chordSize: number;
   diagramSize: number;
@@ -32,6 +42,11 @@ export const DEFAULT_SETTINGS: Settings = {
   sideOrder: 'appearance',
   scope: 'partial',
   lyricColumns: 1,
+  colSplit: 0.5,
+  sideSplit: 0.65,
+  lineHeight: 1.25,
+  lineGap: 0.15,
+  chordGap: 0,
   lyricSize: 18,
   chordSize: 16,
   diagramSize: 1,

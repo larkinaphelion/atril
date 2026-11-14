@@ -2,6 +2,7 @@ import { Fragment, memo } from 'react';
 import type { Chord } from '../music/chord';
 import type { Settings } from '../state/types';
 import { ChordDiagram, ChordName } from './ChordUI';
+import { SplitPane } from './SplitPane';
 
 export interface DisplaySegment {
   name: string | null; // null = sin acorde
@@ -24,49 +25,63 @@ interface Props {
   lines: DisplayLine[];
   unique: UniqueChord[]; // ya ordenados según la preferencia
   settings: Settings;
+  setSettings: (p: Partial<Settings>) => void;
   activeLine: number;
   activeSeg: number;
   onLineClick: (line: number) => void;
 }
 
-export function SongView({ lines, unique, settings, activeLine, activeSeg, onLineClick }: Props) {
+export function SongView({ lines, unique, settings, setSettings, activeLine, activeSeg, onLineClick }: Props) {
   const hideChords = settings.instrument === 'none';
   const diagrams = !hideChords && settings.chordView === 'diagrams';
   const placement = diagrams ? settings.placement : 'names';
-  const colsClass = settings.lyricColumns === 2 ? ' cols-2' : '';
+  const inline = placement === 'inline';
+  const twoCols = settings.lyricColumns === 2;
 
-  const renderLine = (l: DisplayLine, i: number, inlineDiagrams: boolean) => (
-    <LineView key={i} line={l} index={i} inlineDiagrams={inlineDiagrams} hideChords={hideChords}
+  const renderLine = (l: DisplayLine, i: number) => (
+    <LineView key={i} line={l} index={i} inlineDiagrams={inline} hideChords={hideChords}
       active={i === activeLine} activeSeg={i === activeLine ? activeSeg : -2} onClick={onLineClick} />
   );
+  const indices = lines.map((_, i) => i);
+  // Para dos columnas: se corta en un límite de estrofa cerca de la mitad.
+  const cut = twoCols ? splitPoint(lines, inline) : lines.length;
+  const halves = [indices.slice(0, cut), indices.slice(cut)];
+
+  const colSplit = (left: React.ReactNode, right: React.ReactNode, className = '') => (
+    <SplitPane className={'lyric-cols ' + className} split={settings.colSplit} defaultSplit={0.5}
+      label="Ancho de las columnas de letra" onCommit={(colSplit) => setSettings({ colSplit })} rows={[[left, right]]} />
+  );
+  const lyricsBlock = (ids: number[]) => <div className="lyrics">{ids.map((i) => renderLine(lines[i], i))}</div>;
 
   if (placement === 'side' && settings.sideOrder === 'repeat') {
-    return (
-      <div className={'song side-rows' + colsClass}>
-        {lines.map((l, i) => {
+    // Cada línea con sus diagramas al lado; una sola barra para todas las filas.
+    const rowsFor = (ids: number[]) => (
+      <SplitPane className="side-rows lyrics" split={settings.sideSplit} defaultSplit={0.65}
+        label="Ancho de letra y diagramas" onCommit={(sideSplit) => setSettings({ sideSplit })}
+        rows={ids.map((i) => {
+          const l = lines[i];
           const chords = l.kind === 'lyrics'
             ? l.segments.filter((s): s is DisplaySegment & { chord: Chord; name: string } => !!s.chord && !!s.name)
             : [];
-          return (
-            <div key={i} className="side-row">
-              {renderLine(l, i, false)}
-              <div className="side-row-diagrams">
-                {chords.map((s, k) => <ChordDiagram key={k} chord={s.chord} name={s.name} scaleMul={0.8} />)}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+          return [
+            renderLine(l, i),
+            <div className="side-row-diagrams">
+              {chords.map((s, k) => <ChordDiagram key={k} chord={s.chord} name={s.name} scaleMul={0.8} />)}
+            </div>,
+          ];
+        })} />
     );
+    return <div className="song">{twoCols ? colSplit(rowsFor(halves[0]), rowsFor(halves[1])) : rowsFor(indices)}</div>;
   }
+
+  const lyrics = twoCols ? colSplit(lyricsBlock(halves[0]), lyricsBlock(halves[1])) : lyricsBlock(indices);
 
   if (placement === 'side') {
     return (
-      <div className="song side-layout">
-        <div className={'lyrics' + colsClass}>{lines.map((l, i) => renderLine(l, i, false))}</div>
-        <aside className="side-diagrams">
-          <DiagramGrid unique={unique} />
-        </aside>
+      <div className="song">
+        <SplitPane className="side-layout" split={settings.sideSplit} defaultSplit={0.65}
+          label="Ancho de letra y diagramas" onCommit={(sideSplit) => setSettings({ sideSplit })}
+          rows={[[lyrics, <aside className="side-diagrams"><DiagramGrid unique={unique} /></aside>]]} />
       </div>
     );
   }
@@ -74,9 +89,36 @@ export function SongView({ lines, unique, settings, activeLine, activeSeg, onLin
   return (
     <div className="song">
       {placement === 'top' && <DiagramGrid unique={unique} />}
-      <div className={'lyrics' + colsClass}>{lines.map((l, i) => renderLine(l, i, placement === 'inline'))}</div>
+      {lyrics}
     </div>
   );
+}
+
+/** Índice donde empieza la segunda columna: el límite de estrofa más cercano a la mitad de la altura. */
+function splitPoint(lines: DisplayLine[], inlineDiagrams: boolean): number {
+  const weight = (l: DisplayLine) => {
+    if (l.kind === 'blank') return 0.6;
+    if (l.kind !== 'lyrics') return 1;
+    const chords = l.segments.some((s) => s.name);
+    return chords ? (inlineDiagrams ? 5 : 2) : 1;
+  };
+  const w = lines.map(weight);
+  const total = w.reduce((a, b) => a + b, 0);
+  let best = Math.ceil(lines.length / 2);
+  let bestScore = Infinity;
+  let acc = 0;
+  for (let i = 1; i < lines.length; i++) {
+    acc += w[i - 1];
+    const boundary = lines[i].kind === 'section' || lines[i - 1].kind === 'blank';
+    const score = Math.abs(acc - total / 2) + (boundary ? 0 : total * 0.15);
+    if (score < bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  // No empezar la segunda columna con un renglón en blanco.
+  while (best < lines.length && lines[best].kind === 'blank') best++;
+  return best;
 }
 
 export function DiagramGrid({ unique, scaleMul = 1, compact = false }: { unique: UniqueChord[]; scaleMul?: number; compact?: boolean }) {
