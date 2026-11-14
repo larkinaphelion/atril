@@ -24,6 +24,14 @@ export function parseChord(raw: string): Chord | null {
   const root = parseNote(m[1]);
   if (!root) return null;
   let suffix = m[2];
+  // "Am#", "Am#7" → A#m, A#m7 (alteración escrita después de la "m", como en algunos cancioneros)
+  const late = /^(m|min|mi|-)([#♯])(?=$|[67](?!\d)|\/|maj|M7|7M)/.exec(suffix);
+  if (late && root.acc === 0) {
+    root.acc = 1;
+    suffix = late[1] + suffix.slice(late[0].length);
+  }
+  // Disminuido escrito con "o" o "º" (G#o, G#º7) y "7M" = maj7 (notación brasileña)
+  suffix = suffix.replace(/^[oº](?!mit)/, '°').replace(/^(m?)7M/, '$1maj7');
   let bass: Note | undefined;
   const slash = /^(.*)\/([A-G](?:#|b|♯|♭)?)$/.exec(suffix);
   if (slash) {

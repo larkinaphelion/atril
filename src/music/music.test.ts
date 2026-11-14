@@ -19,6 +19,16 @@ describe('parseChord', () => {
       expect(parseChord(s), s).not.toBeNull();
     }
   });
+  it('acepta notaciones alternativas', () => {
+    expect(chordToString(C('Am#'))).toBe('A#m');
+    expect(chordToString(C('Cm#7'))).toBe('C#m7');
+    expect(chordToString(C('G#o'))).toBe('G#°');
+    expect(chordToString(C('G#º7'))).toBe('G#°7');
+    expect(chordToString(C('C7M'))).toBe('Cmaj7');
+    expect(pcsOf('Am#')).toEqual([1, 5, 10]);
+    expect(pcsOf('G#o')).toEqual([2, 8, 11]);
+    expect(pcsOf('Go7')).toEqual([1, 4, 7, 10]);
+  });
   it('rechaza palabras', () => {
     for (const s of ['All', 'of', 'me', 'Bad', 'Every', 'Can\'t', 'Verse']) expect(parseChord(s), s).toBeNull();
   });
